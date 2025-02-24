@@ -1,96 +1,125 @@
+from flask import Flask, request, jsonify
 import os
-import json
 import sqlite3
-from flask import Flask, jsonify, request
-from openai import OpenAI
+from groq import Groq
 from dotenv import load_dotenv
+import logging
 from twilio.twiml.messaging_response import MessagingResponse
-
-# Load environment variables
-load_dotenv()
 
 # Initialize Flask app
 app = Flask(__name__)
 
-# Initialize OpenAI client
-openai_client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+# Set up logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
 
-# SQLite database connection
+# Load environment variables
+load_dotenv()
+API_KEY = os.getenv("GROQ_API_KEY")
+
+if not API_KEY:
+    raise ValueError("GROQ_API_KEY not found in environment variables")
+
+groq_client = Groq(api_key=API_KEY)
+
+# Hotel information constant
+HOTEL_INFO = """Thira Beach Home is a luxurious seaside retreat that seamlessly blends Italian-Kerala heritage architecture with modern luxury, creating an unforgettable experience. Nestled just 150 meters from the magnificent Arabian Sea, our beachfront property offers a secluded and serene escape with breathtaking 180-degree ocean views.
+
+The accommodations feature Kerala-styled heat-resistant tiled roofs, natural stone floors, and lime-plastered walls, ensuring a perfect harmony of comfort and elegance. Each of our Luxury Ocean View Rooms is designed to provide an exceptional stay, featuring a spacious 6x6.5 ft cot with a 10-inch branded mattress encased in a bamboo-knitted outer layer for supreme comfort.
+
+Our facilities include:
+- Personalized climate control with air conditioning and ceiling fans
+- Wardrobe and wall mirror
+- Table with attached drawer and two chairs
+- Additional window bay bed for relaxation
+- 43-inch 4K television
+- Luxury bathroom with body jets, glass roof, and oval-shaped bathtub
+- Total room area of 250 sq. ft.
+
+Modern amenities:
+- RO and UV-filtered drinking water
+- 24/7 hot water
+- Water processing unit with softened water
+- Uninterrupted power backup
+- High-speed internet with WiFi
+- Security with CCTV surveillance
+- Electric charging facility
+- Accessible design for differently-abled persons
+
+Additional services:
+- Yoga classes
+- Cycling opportunities
+- On-site dining at Samudrakani Kitchen
+- Stylish lounge and dining area
+- Long veranda with ocean views
+
+Location: Kothakulam Beach, Valappad, Thrissur, Kerala
+Contact: +91-94470 44788
+Email: thirabeachhomestay@gmail.com"""
+
+# Connect to SQLite database
 def connect_to_db():
-    return sqlite3.connect('phone.db')
+    return sqlite3.connect('rooms.db')
 
-# Ensure the phone_data table exists
-def ensure_table_exists():
+# Fetch room details from the database
+def fetch_room_details():
     conn = connect_to_db()
     cursor = conn.cursor()
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS phone_data (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            phone_number TEXT UNIQUE,
-            details TEXT
-        )
-    ''')
-    conn.commit()
+    cursor.execute('SELECT title, description FROM room_data')
+    results = cursor.fetchall()
     conn.close()
-
-# Fetch details from the database
-def fetch_details_from_db(phone_number):
-    conn = connect_to_db()
-    cursor = conn.cursor()
-    cursor.execute('SELECT details FROM phone_data WHERE phone_number = ?', (phone_number,))
-    result = cursor.fetchone()
-    conn.close()
-    return result[0] if result else None
+    if results:
+        return "\n\n".join([f"Room: {title}\nDescription: {desc}" for title, desc in results])
+    return "No room details available."
 
 # Classify the query
 def classify_query(query):
-    prompt = f"""Classify the following query into one of two categories:
-    1. Checking details - if the query is about verifying or retrieving employee specific details.
-    2. Getting information - if the query is about general information or knowledge related to BFIL.
-
+    prompt = f"""Classify the following query:
+    1. Checking details - if it's about booking a hotel room
+    2. Getting information - if it's about general hotel info.
+    
     Query: {query}
+    Respond with only the number (1 or 2)."""
+    
+    response = groq_client.chat.completions.create(
+        model="llama-3.3-70b-versatile",
+        messages=[{"role": "user", "content": prompt}],
+        max_tokens=10
+    )
+    
+    return response.choices[0].message.content.strip()
 
-    Respond with only the category number (1 or 2)."""
-
-    try:  # Add error handling for OpenAI API
-        response = openai_client.chat.completions.create(
-            model="gpt-4o-mini",  # Or your preferred model
-            messages=[{"role": "user", "content": prompt}],
-            max_tokens=10
-        )
-        return response.choices[0].message.content.strip()
-    except Exception as e:
-        print(f"Error classifying query: {e}")
-        return None  # Or return a default category if you prefer
-
-
-# Generate a response
+# Generate response
 def generate_response(query, context):
-    try:  # Error handling for OpenAI API
-        response = openai_client.chat.completions.create(
-            model="gpt-4o-mini",  # Or your preferred model
-            messages=[
-                {"role": "system", "content": "You are a helpful assistant."},
-                {"role": "user", "content": f"Query: {query}\nContext: {context}"}
-            ],
-            max_tokens=300
-        )
-        return response.choices[0].message.content
-    except Exception as e:
-        print(f"Error generating response: {e}")
-        return "There was an error processing your request."  # Or a more informative error message
+    response = groq_client.chat.completions.create(
+        model="llama-3.3-70b-versatile",
+        messages=[
+            {"role": "system", "content": "You are Maya, a friendly hotel receptionist."},
+            {"role": "user", "content": f"Query: {query}\nContext: {context}"}
+        ],
+        max_tokens=300
+    )
+    
+    return response.choices[0].message.content
 
-
-# Ensure the table exists when the app starts
-ensure_table_exists()
-
-# Flask endpoint for your API (if needed) - keep this for your existing API
-@app.route('/query', methods=['POST'])
+@app.route('/query', methods=['GET'])
 def handle_query():
-    # ... (Your existing API logic) ...
-    pass  # Keep this for your existing API functionality
+    query = request.args.get('query')
+    if not query:
+        return jsonify({"error": "Query parameter is required"}), 400
+    
+    query_type = classify_query(query)
+    if query_type == "1":
+        context = fetch_room_details()
+    elif query_type == "2":
+        context = HOTEL_INFO
+    else:
+        return jsonify({"error": "Invalid query classification"}), 500
+    
+    response = generate_response(query, context)
+    return jsonify({"response": response})
 
-# Twilio webhook endpoint
+# Twilio webhook for handling WhatsApp messages
 @app.route('/twilio_webhook', methods=['POST'])
 def twilio_webhook():
     phone_number = request.form.get('From')
@@ -100,27 +129,23 @@ def twilio_webhook():
         error_message = "<Response><Message>Error: Phone number and message are required.</Message></Response>"
         return error_message, 400, {'Content-Type': 'application/xml'}
 
+    logger.info(f"Received WhatsApp message from {phone_number}: {message_body}")
+
     query_type = classify_query(message_body)
 
     if query_type == "1":
-        details = fetch_details_from_db(phone_number)
-        if not details:
-            response_text = "No details found for that number."
-        else:
-            response_text = generate_response(message_body, details)
+        details = fetch_room_details()
+        response_text = generate_response(message_body, details)
     elif query_type == "2":
-        common_summary = """Bharat Financial Inclusion Limited (BFIL), a 100% subsidiary of IndusInd Bank, is a leading player in the financial services sector, offering a diverse range of banking and financial solutions aimed at fostering financial inclusion across India. Originally established in 1998 as a microfinance institution, BFIL became a wholly owned subsidiary of IndusInd Bank following its merger in 2019. As a Business Correspondent of the bank, BFIL provides microfinance loans, MSME loans, two-wheeler loans, merchant loans, and personal loans, along with savings and investment solutions such as recurring deposits, fixed deposits, and current accounts. Serving over 10 million customers across 1.34 lakh villages in 23 Indian states through a vast network of 3,178+ branches, BFIL plays a crucial role in enhancing financial accessibility in rural and semi-urban areas. Through Bharat Money Store and Bharat Super Shop, the company extends banking and transaction services to kirana merchants and small retailers, facilitating cash withdrawals, deposits, money transfers, bill payments, and digital transactions via mobile and WhatsApp banking. Its Aadhaar-enabled banking services further empower customers with seamless biometric-based transactions. BFIL has also established Customer Service Units (CSUs) to offer essential banking solutions at the doorstep, ensuring swift query resolution, access to government benefits, and improved financial literacy. With a commitment to innovation and digitization, BFIL continues to expand its footprint while driving financial empowerment, economic growth, and better livelihood opportunities for millions across India."""
-        response_text = generate_response(message_body, common_summary)
+        response_text = generate_response(message_body, HOTEL_INFO)
     else:
-        response_text = "Unable to classify your query."
+        response_text = "Sorry, I couldn't understand your request."
 
+    # Twilio response
     response = MessagingResponse()
     response.message(response_text)
 
-    # Correct and robust way to get the TwiML string:
-    twiml_string = str(response)
-
-    return twiml_string, 200, {'Content-Type': 'application/xml'}
+    return str(response), 200, {'Content-Type': 'application/xml'}
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=4000, debug=False)  # Set debug=False in production
+    app.run(host='0.0.0.0', port=5000, debug=True)

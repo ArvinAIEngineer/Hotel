@@ -21,7 +21,40 @@ if not API_KEY:
 groq_client = Groq(api_key=API_KEY)
 
 # Hotel information constant
-HOTEL_INFO = """Thira Beach Home is a luxurious seaside retreat..."""
+HOTEL_INFO = """Thira Beach Home is a luxurious seaside retreat that seamlessly blends Italian-Kerala heritage architecture with modern luxury, creating an unforgettable experience. Nestled just 150 meters from the magnificent Arabian Sea, our beachfront property offers a secluded and serene escape with breathtaking 180-degree ocean views. 
+
+The accommodations feature Kerala-styled heat-resistant tiled roofs, natural stone floors, and lime-plastered walls, ensuring a perfect harmony of comfort and elegance. Each of our Luxury Ocean View Rooms is designed to provide an exceptional stay, featuring a spacious 6x6.5 ft cot with a 10-inch branded mattress encased in a bamboo-knitted outer layer for supreme comfort.
+
+Our facilities include:
+- Personalized climate control with air conditioning and ceiling fans
+- Wardrobe and wall mirror
+- Table with attached drawer and two chairs
+- Additional window bay bed for relaxation
+- 43-inch 4K television
+- Luxury bathroom with body jets, glass roof, and oval-shaped bathtub
+- Total room area of 250 sq. ft.
+
+Modern amenities:
+- RO and UV-filtered drinking water
+- 24/7 hot water
+- Water processing unit with softened water
+- Uninterrupted power backup
+- High-speed internet with WiFi
+- Security with CCTV surveillance
+- Electric charging facility
+- Accessible design for differently-abled persons
+
+Additional services:
+- Yoga classes
+- Cycling opportunities
+- On-site dining at Samudrakani Kitchen
+- Stylish lounge and dining area
+- Long veranda with ocean views
+
+Location: Kothakulam Beach, Valappad, Thrissur, Kerala
+Contact: +91-94470 44788
+Email: thirabeachhomestay@gmail.com"""
+
 
 # Connect to SQLite database
 def connect_to_db():
